@@ -43,70 +43,6 @@ def get_db_connection():
     """Создает подключение к базе данных"""
     return psycopg2.connect(**DB_CONFIG)
 
-def create_table_if_not_exists():
-    """Создает таблицы, если они не существуют"""
-    create_table_query = """
-        CREATE TABLE IF NOT EXISTS public.txs (
-        id serial4 NOT NULL,
-        from_address varchar(150) NOT NULL,
-        from_chain varchar(30) NOT NULL,
-        from_hash varchar(150) NOT NULL,
-        from_token varchar(255) NULL,
-        from_amount float8 NULL,
-        from_timestamp int4 NULL,
-        to_address varchar(150) NOT NULL,
-        to_chain varchar(30) NOT NULL,
-        to_hash varchar(150) NULL,
-        to_timestamp int4 NULL,
-        to_token varchar(255) NULL,
-        to_amount float8 NULL,
-        status varchar(100) NOT NULL,
-        bridge_id int4 NOT NULL,
-        bridge_from varchar(150) NULL,
-        bridge_to varchar(150) NULL,
-        created_at int4 DEFAULT EXTRACT(epoch FROM timezone('utc'::text, now()))::integer NOT NULL,
-        CONSTRAINT txs_pkey PRIMARY KEY (id)
-        );
-        CREATE INDEX IF NOT EXISTS txs_created_at_idx ON public.txs USING btree (created_at);
-        CREATE INDEX IF NOT EXISTS txs_from_address_idx ON public.txs USING btree (from_address);
-        CREATE INDEX IF NOT EXISTS txs_from_hash_idx ON public.txs USING btree (from_hash);
-        CREATE INDEX IF NOT EXISTS txs_to_address_idx ON public.txs USING btree (to_address);
-
-        CREATE TABLE IF NOT EXISTS public.txs_transport (
-        id serial4 NOT NULL,
-        from_address varchar(150) NOT NULL,
-        from_chain varchar(30) NOT NULL,
-        from_hash varchar(150) NOT NULL,
-        from_token varchar(255) NULL,
-        from_amount float8 NULL,
-        from_timestamp int4 NULL,
-        to_address varchar(150) NOT NULL,
-        to_chain varchar(30) NOT NULL,
-        to_hash varchar(150) NULL,
-        to_timestamp int4 NULL,
-        to_token varchar(255) NULL,
-        to_amount float8 NULL,
-        status varchar(100) NOT NULL,
-        bridge_id int4 NOT NULL,
-        bridge_from varchar(150) NULL,
-        bridge_to varchar(150) NULL,
-        created_at int4 DEFAULT EXTRACT(epoch FROM timezone('utc'::text, now()))::integer NOT NULL,
-        CONSTRAINT txs_transport_pkey PRIMARY KEY (id)
-        );
-        CREATE INDEX IF NOT EXISTS txs_transport_created_at_idx ON public.txs_transport USING btree (created_at);
-        CREATE INDEX IF NOT EXISTS txs_transport_from_address_idx ON public.txs_transport USING btree (from_address);
-        CREATE INDEX IF NOT EXISTS txs_transport_from_hash_idx ON public.txs_transport USING btree (from_hash);
-        CREATE INDEX IF NOT EXISTS txs_transport_to_address_idx ON public.txs_transport USING btree (to_address);
-
-        ALTER TABLE public.txs ADD CONSTRAINT txs_bridge_id_fkey FOREIGN KEY (bridge_id) REFERENCES public.bridges(id) ON DELETE CASCADE;
-        ALTER TABLE public.txs_transport ADD CONSTRAINT txs_transport_bridge_id_fkey FOREIGN KEY (bridge_id) REFERENCES public.bridges(id) ON DELETE CASCADE;
-    """
-    
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(create_table_query)
-        conn.commit()
-
 def insert_transaction(transaction_data, has_data_block):
     """Вставляет транзакцию в соответствующую таблицу базы данных"""
     table_name = "txs" if has_data_block else "txs_transport"
@@ -333,9 +269,6 @@ def parse_wormhole_data_for_date_range(from_date, to_date):
 
 def parse_wormhole_data():
     """Основная функция для парсинга данных"""
-    # Создаем таблицы, если они не существуют
-    create_table_if_not_exists()
-    
     total_transactions = 0
     total_transport = 0
     last_processed_date = None
