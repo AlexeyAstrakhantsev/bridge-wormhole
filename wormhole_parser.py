@@ -46,6 +46,14 @@ def get_db_connection():
 def create_table_if_not_exists():
     """Создает таблицы, если они не существуют"""
     create_table_query = """
+        CREATE TABLE IF NOT EXISTS public.bridges (
+            id serial4 NOT NULL,
+            name varchar(50) NOT NULL,
+            created_at timestamp DEFAULT timezone('utc'::text, now()) NOT NULL,
+            name_short varchar(50) NULL,
+            CONSTRAINT bridges_pkey PRIMARY KEY (id)
+        );
+
         CREATE TABLE IF NOT EXISTS public.txs (
         id serial4 NOT NULL,
         from_address varchar(150) NOT NULL,
@@ -102,9 +110,16 @@ def create_table_if_not_exists():
         ALTER TABLE public.txs_transport ADD CONSTRAINT txs_transport_bridge_id_fkey FOREIGN KEY (bridge_id) REFERENCES public.bridges(id) ON DELETE CASCADE;
     """
     
+    insert_bridges_query = """
+        INSERT INTO public.bridges (name, name_short) VALUES 
+        ('https://wormholescan.io/', 'wormhole')
+        ON CONFLICT (name) DO NOTHING;
+    """
+    
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(create_table_query)
+            cur.execute(insert_bridges_query)
         conn.commit()
 
 def insert_transaction(transaction_data, has_data_block):
@@ -211,12 +226,30 @@ def generate_date_ranges():
         )
         current_date = current_date + timedelta(days=1)
 
+def get_bridge_id():
+    """Получает ID моста Wormhole из базы данных"""
+    query = """
+        SELECT id FROM public.bridges 
+        WHERE name = 'https://wormholescan.io/' 
+        LIMIT 1
+    """
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            result = cur.fetchone()
+            if result:
+                return result[0]
+            raise Exception("Bridge ID не найден в базе данных")
+
 def parse_wormhole_data_for_date_range(from_date, to_date):
     """Парсит данные для указанного диапазона дат"""
     url = "https://api.wormholescan.io/api/v1/operations"
     page = 0
     total_processed = 0
     total_transport = 0
+    
+    # Получаем bridge_id один раз в начале
+    bridge_id = get_bridge_id()
     
     while True:
         params = {
@@ -257,9 +290,6 @@ def parse_wormhole_data_for_date_range(from_date, to_date):
                 if not to_address:
                     continue
                 
-                # Извлекаем bridge_id из id операции
-                bridge_id = int(operation.get("id", "").split("/")[0])
-                
                 # Проверяем наличие блока data с нужными полями
                 data_block = operation.get("data", {})
                 has_data_block = bool(data_block and "tokenAmount" in data_block and "symbol" in data_block)
@@ -279,7 +309,7 @@ def parse_wormhole_data_for_date_range(from_date, to_date):
                     data_block.get('symbol') if has_data_block else None,
                     float(data_block.get('tokenAmount', 0)) if has_data_block else None,
                     operation.get("sourceChain", {}).get("status", "unknown"),
-                    bridge_id,
+                    bridge_id,  # используем полученный bridge_id
                     get_chain_name(from_chain),
                     get_chain_name(to_chain)
                 )
