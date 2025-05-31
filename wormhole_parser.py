@@ -46,14 +46,6 @@ def get_db_connection():
 def create_table_if_not_exists():
     """Создает таблицы, если они не существуют"""
     create_table_query = """
-        CREATE TABLE IF NOT EXISTS public.bridges (
-            id serial4 NOT NULL,
-            name varchar(50) NOT NULL,
-            created_at timestamp DEFAULT timezone('utc'::text, now()) NOT NULL,
-            name_short varchar(50) NULL,
-            CONSTRAINT bridges_pkey PRIMARY KEY (id)
-        );
-
         CREATE TABLE IF NOT EXISTS public.txs (
         id serial4 NOT NULL,
         from_address varchar(150) NOT NULL,
@@ -110,16 +102,9 @@ def create_table_if_not_exists():
         ALTER TABLE public.txs_transport ADD CONSTRAINT txs_transport_bridge_id_fkey FOREIGN KEY (bridge_id) REFERENCES public.bridges(id) ON DELETE CASCADE;
     """
     
-    insert_bridges_query = """
-        INSERT INTO public.bridges (name, name_short) VALUES 
-        ('https://wormholescan.io/', 'wormhole')
-        ON CONFLICT (name) DO NOTHING;
-    """
-    
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(create_table_query)
-            cur.execute(insert_bridges_query)
         conn.commit()
 
 def insert_transaction(transaction_data, has_data_block):
@@ -276,7 +261,7 @@ def parse_wormhole_data_for_date_range(from_date, to_date):
                     dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
                     time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
                     unix_timestamp = int(dt.timestamp())
-            
+                
                 # Получаем данные о сетях и адресах
                 from_chain = operation.get("sourceChain", {}).get("chainId")
                 from_address = operation.get("sourceChain", {}).get("from")
@@ -317,14 +302,14 @@ def parse_wormhole_data_for_date_range(from_date, to_date):
                 # Вставляем данные в соответствующую таблицу
                 insert_transaction(transaction_data, has_data_block)
                 
-            # Выводим данные
-            print("-" * 100)
-            print(f"Время: {time_str}")
-            print(f"Откуда: {get_chain_name(from_chain)} ({from_address})")
-            print(f"Транзакция откуда: {from_tx}")
-            print(f"Куда: {get_chain_name(to_chain)} ({to_address})")
-            if to_tx:
-                print(f"Транзакция куда: {to_tx}")
+                # Выводим данные
+                print("-" * 100)
+                print(f"Время: {time_str}")
+                print(f"Откуда: {get_chain_name(from_chain)} ({from_address})")
+                print(f"Транзакция откуда: {from_tx}")
+                print(f"Куда: {get_chain_name(to_chain)} ({to_address})")
+                if to_tx:
+                    print(f"Транзакция куда: {to_tx}")
                 if has_data_block:
                     print(f"Сумма: {data_block['tokenAmount']} {data_block['symbol']}")
                     total_processed += 1
