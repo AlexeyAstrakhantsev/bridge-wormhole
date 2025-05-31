@@ -6,6 +6,7 @@ import psycopg2
 from psycopg2.extras import execute_values
 import os
 from dotenv import load_dotenv
+import pathlib
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -18,6 +19,25 @@ DB_CONFIG = {
     'host': os.getenv('DB_HOST'),
     'port': os.getenv('DB_PORT', '5432')
 }
+
+# Создаем директорию для данных, если её нет
+DATA_DIR = pathlib.Path("data")
+DATA_DIR.mkdir(exist_ok=True)
+
+PROGRESS_FILE = DATA_DIR / "last_processed_date.txt"
+
+def get_last_processed_date():
+    """Получает дату последней обработанной транзакции"""
+    if PROGRESS_FILE.exists():
+        with open(PROGRESS_FILE, 'r') as f:
+            date_str = f.read().strip()
+            return datetime.fromisoformat(date_str)
+    return datetime(2022, 3, 1)  # Начальная дата
+
+def save_last_processed_date(date):
+    """Сохраняет дату последней обработанной транзакции"""
+    with open(PROGRESS_FILE, 'w') as f:
+        f.write(date.isoformat())
 
 def get_db_connection():
     """Создает подключение к базе данных"""
@@ -179,10 +199,10 @@ def get_chain_name(chain_id):
     return CHAIN_ID_TO_NAME.get(chain_id, f"Unknown Chain ({chain_id})").lower()
 
 def generate_date_ranges():
-    """Генерирует диапазоны дат для мая 2025 года"""
-    start_date = datetime(2025, 5, 1)
-    end_date = datetime(2025, 5, 31)
-    current_date = start_date
+    """Генерирует диапазоны дат для обработки"""
+    last_date = get_last_processed_date()
+    current_date = last_date + timedelta(days=1)
+    end_date = datetime.now() - timedelta(days=1)  # Вчерашний день
     
     while current_date <= end_date:
         yield (
@@ -223,7 +243,7 @@ def parse_wormhole_data_for_date_range(from_date, to_date):
                     dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
                     time_str = dt.strftime("%Y-%m-%d %H:%M:%S")
                     unix_timestamp = int(dt.timestamp())
-                
+            
                 # Получаем данные о сетях и адресах
                 from_chain = operation.get("sourceChain", {}).get("chainId")
                 from_address = operation.get("sourceChain", {}).get("from")
@@ -266,15 +286,15 @@ def parse_wormhole_data_for_date_range(from_date, to_date):
                 
                 # Вставляем данные в соответствующую таблицу
                 insert_transaction(transaction_data, has_data_block)
-                    
-                # Выводим данные
-                print("-" * 100)
-                print(f"Время: {time_str}")
-                print(f"Откуда: {get_chain_name(from_chain)} ({from_address})")
-                print(f"Транзакция откуда: {from_tx}")
-                print(f"Куда: {get_chain_name(to_chain)} ({to_address})")
-                if to_tx:
-                    print(f"Транзакция куда: {to_tx}")
+                
+            # Выводим данные
+            print("-" * 100)
+            print(f"Время: {time_str}")
+            print(f"Откуда: {get_chain_name(from_chain)} ({from_address})")
+            print(f"Транзакция откуда: {from_tx}")
+            print(f"Куда: {get_chain_name(to_chain)} ({to_address})")
+            if to_tx:
+                print(f"Транзакция куда: {to_tx}")
                 if has_data_block:
                     print(f"Сумма: {data_block['tokenAmount']} {data_block['symbol']}")
                     total_processed += 1
@@ -297,23 +317,44 @@ def parse_wormhole_data_for_date_range(from_date, to_date):
     return total_processed, total_transport
 
 def parse_wormhole_data():
-    """Основная функция для парсинга данных за май 2025"""
+    """Основная функция для парсинга данных"""
     # Создаем таблицы, если они не существуют
     create_table_if_not_exists()
     
     total_transactions = 0
     total_transport = 0
+    last_processed_date = None
     
-    for from_date, to_date in generate_date_ranges():
-        print(f"\nОбработка периода: {from_date} - {to_date}")
-        processed, transport = parse_wormhole_data_for_date_range(from_date, to_date)
-        total_transactions += processed
-        total_transport += transport
-        print(f"Обработано транзакций за период: {processed}")
-        print(f"Обработано транспортных транзакций за период: {transport}")
-    
-    print(f"\nВсего обработано транзакций: {total_transactions}")
-    print(f"Всего обработано транспортных транзакций: {total_transport}")
+    try:
+        for from_date, to_date in generate_date_ranges():
+            print(f"\nОбработка периода: {from_date} - {to_date}")
+            processed, transport = parse_wormhole_data_for_date_range(from_date, to_date)
+            total_transactions += processed
+            total_transport += transport
+            print(f"Обработано транзакций за период: {processed}")
+            print(f"Обработано транспортных транзакций за период: {transport}")
+            
+            # Сохраняем прогресс после каждого дня
+            current_date = datetime.strptime(from_date, "%Y-%m-%dT%H:%M:%S.%fZ")
+            save_last_processed_date(current_date)
+            last_processed_date = current_date
+            
+            # Добавляем небольшую задержку между днями
+            time.sleep(1)
+        
+        print(f"\nВсего обработано транзакций: {total_transactions}")
+        print(f"Всего обработано транспортных транзакций: {total_transport}")
+        if last_processed_date:
+            print(f"Последняя обработанная дата: {last_processed_date.strftime('%Y-%m-%d')}")
+            
+    except KeyboardInterrupt:
+        print("\nОбработка прервана пользователем")
+        if last_processed_date:
+            print(f"Последняя обработанная дата: {last_processed_date.strftime('%Y-%m-%d')}")
+    except Exception as e:
+        print(f"\nПроизошла ошибка: {e}")
+        if last_processed_date:
+            print(f"Последняя обработанная дата: {last_processed_date.strftime('%Y-%m-%d')}")
 
 if __name__ == "__main__":
     parse_wormhole_data() 
