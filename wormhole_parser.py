@@ -199,11 +199,11 @@ def parse_wormhole_data_for_date_range(from_date, to_date):
                     unix_timestamp = int(dt.timestamp())
                 
                 # Получаем данные о сетях и адресах
-                from_chain = operation.get("sourceChain", {}).get("chainId")
+                from_chain_id = operation.get("sourceChain", {}).get("chainId")
                 from_address = operation.get("sourceChain", {}).get("from")
                 from_tx = operation.get("sourceChain", {}).get("transaction", {}).get("txHash")
                 
-                to_chain = operation.get("content", {}).get("standarizedProperties", {}).get("toChain")
+                to_chain_id = operation.get("content", {}).get("standarizedProperties", {}).get("toChain")
                 to_address = operation.get("content", {}).get("standarizedProperties", {}).get("toAddress")
                 to_tx = operation.get("content", {}).get("standarizedProperties", {}).get("toTransactionHash")
                 
@@ -215,24 +215,28 @@ def parse_wormhole_data_for_date_range(from_date, to_date):
                 data_block = operation.get("data", {})
                 has_data_block = bool(data_block and "tokenAmount" in data_block and "symbol" in data_block)
                 
+                # Получаем имена сетей
+                from_chain = get_chain_name(from_chain_id)
+                to_chain = get_chain_name(to_chain_id)
+                
                 # Подготавливаем данные для вставки
                 transaction_data = (
                     from_address,
-                    str(from_chain),  # конвертируем в строку
+                    from_chain,  # используем имя сети вместо ID
                     from_tx,
                     data_block.get('symbol') if has_data_block else None,
                     float(data_block.get('tokenAmount', 0)) if has_data_block else None,
                     unix_timestamp,
                     to_address,
-                    str(to_chain),  # конвертируем в строку
+                    to_chain,  # используем имя сети вместо ID
                     to_tx,
                     None,  # to_timestamp будет заполнен позже
                     data_block.get('symbol') if has_data_block else None,
                     float(data_block.get('tokenAmount', 0)) if has_data_block else None,
                     operation.get("sourceChain", {}).get("status", "unknown"),
-                    bridge_id,  # используем полученный bridge_id
-                    get_chain_name(from_chain),
-                    get_chain_name(to_chain)
+                    bridge_id,
+                    from_chain,  # используем то же имя сети
+                    to_chain  # используем то же имя сети
                 )
                 
                 # Вставляем данные в соответствующую таблицу
@@ -241,9 +245,9 @@ def parse_wormhole_data_for_date_range(from_date, to_date):
                 # Выводим данные
                 print("-" * 100)
                 print(f"Время: {time_str}")
-                print(f"Откуда: {get_chain_name(from_chain)} ({from_address})")
+                print(f"Откуда: {from_chain} ({from_address})")
                 print(f"Транзакция откуда: {from_tx}")
-                print(f"Куда: {get_chain_name(to_chain)} ({to_address})")
+                print(f"Куда: {to_chain} ({to_address})")
                 if to_tx:
                     print(f"Транзакция куда: {to_tx}")
                 if has_data_block:
